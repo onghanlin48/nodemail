@@ -4,8 +4,8 @@ exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
-
-    const { recipient, subject, message } = JSON.parse(event.body);
+    const data = JSON.parse(event.body);
+    // const { recipient, subject, message } = JSON.parse(event.body);
 
     // Set up the transporter
     const transporter = nodemailer.createTransport({
@@ -19,9 +19,9 @@ exports.handler = async (event) => {
     // Define mail options
     const mailOptions = {
         from: "linwu212@gmail.com",
-        to: recipient,
-        subject: subject,
-        html: message
+        to: data.recipient,
+        subject: data.subject,
+        html: data.message
     };
 
     try {
