@@ -21,7 +21,7 @@ exports.handler = async (event) => {
         from: "linwu212@gmail.com",
         to: recipient,
         subject: subject,
-        text: message
+        html: message
     };
 
     try {
