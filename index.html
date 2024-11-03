@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Send Email</title>
+</head>
+<body>
+    <h2>Send an Email</h2>
+    <form id="emailForm">
+        <label for="recipient">Recipient:</label>
+        <input type="email" id="recipient" required><br><br>
+
+        <label for="subject">Subject:</label>
+        <input type="text" id="subject" required><br><br>
+
+        <label for="message">Message:</label>
+        <textarea id="message" required></textarea><br><br>
+
+        <button type="submit">Send Email</button>
+    </form>
+
+    <script>
+        document.getElementById('emailForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const recipient = document.getElementById('recipient').value;
+            const subject = document.getElementById('subject').value;
+            const message = document.getElementById('message').value;
+
+            try {
+                const response = await fetch('/.netlify/functions/sendEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recipient, subject, message })
+                });
+                
+                if (response.ok) {
+                    alert('Email sent successfully!');
+                } else {
+                    alert('Error sending email.');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        });
+    </script>
+</body>
+</html>
