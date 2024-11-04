@@ -18,7 +18,7 @@ exports.handler = async (event) => {
 
     // Define mail options
     const mailOptions = {
-        from: "linwu212@gmail.com",
+        from: "LinkCamp",
         to: data.recipient,
         subject: data.subject,
         html: data.message
