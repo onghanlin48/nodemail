@@ -1,6 +1,5 @@
 const path = require("path");
 const fs = require("fs");
-const { tmpdir } = require("os");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -23,11 +22,13 @@ exports.handler = async (event) => {
 
   let filePath = null;
   let newFileName = null;
+  let directory = null;
 
   for (const part of parts) {
     if (part.includes("Content-Disposition")) {
       const disposition = part.split("\r\n")[0];
       const content = part.split("\r\n\r\n")[1];
+
       if (disposition.includes("filename")) {
         // Extract the original filename
         const filenameMatch = disposition.match(/filename="([^"]+)"/);
@@ -35,32 +36,37 @@ exports.handler = async (event) => {
           const originalFilename = filenameMatch[1];
           const fileExtension = path.extname(originalFilename);
 
-          // Save the file to a temporary directory
-          filePath = path.join(tmpdir(), originalFilename);
+          // Temporarily save the file
+          filePath = path.join("/tmp", originalFilename);
           fs.writeFileSync(filePath, content, "binary");
-
-          console.log("Uploaded file saved at:", filePath);
         }
       } else if (disposition.includes("name=\"newName\"")) {
         // Extract the new file name
         newFileName = content.trim();
+      } else if (disposition.includes("name=\"directory\"")) {
+        // Extract the directory
+        directory = content.trim();
       }
     }
   }
 
-  if (!filePath || !newFileName) {
-    return { statusCode: 400, body: "File and new name are required" };
+  if (!filePath || !newFileName || !directory) {
+    return { statusCode: 400, body: "File, new name, and directory are required" };
   }
 
-  // Rename the file
   const fileExtension = path.extname(filePath);
-  const newFilePath = path.join(tmpdir(), `${newFileName}${fileExtension}`);
+  const finalDirPath = path.join("uploads", directory);
+
+  // Ensure the directory exists
+  fs.mkdirSync(finalDirPath, { recursive: true });
+
+  const finalFilePath = path.join(finalDirPath, `${newFileName}${fileExtension}`);
 
   try {
-    fs.renameSync(filePath, newFilePath);
-    return { statusCode: 200, body: `File renamed to: ${newFileName}${fileExtension}` };
+    fs.renameSync(filePath, finalFilePath);
+    return { statusCode: 200, body: `File saved to: ${finalFilePath}` };
   } catch (err) {
-    console.error("Error renaming file:", err);
-    return { statusCode: 500, body: "Error renaming file" };
+    console.error("Error saving file:", err);
+    return { statusCode: 500, body: "Error saving file" };
   }
 };
