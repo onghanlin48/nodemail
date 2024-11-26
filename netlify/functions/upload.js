@@ -1,150 +1,121 @@
-const http = require('http');
-const fs = require('fs');
+const { Storage } = require('@google-cloud/storage');
 const path = require('path');
-const url = require('url');
 
-class FileUploader {
-    constructor() {
-        // Base upload directory
-        this.BASE_UPLOAD_DIR = path.join(__dirname, 'uploads');
-        
-        // Ensure base upload directory exists
-        if (!fs.existsSync(this.BASE_UPLOAD_DIR)) {
-            fs.mkdirSync(this.BASE_UPLOAD_DIR);
-        }
+// Initialize Google Cloud Storage
+const storage = new Storage({
+    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+    credentials: {
+        client_email: process.env.GOOGLE_CLOUD_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_CLOUD_PRIVATE_KEY.replace(/\\n/g, '\n')
+    }
+});
+
+// Specify your Google Cloud Storage bucket
+const bucketName = process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
+const bucket = storage.bucket(bucketName);
+
+exports.handler = async (event, context) => {
+    // Handle CORS preflight requests
+    if (event.httpMethod === 'OPTIONS') {
+        return {
+            statusCode: 204,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            },
+            body: ''
+        };
     }
 
-    createServer() {
-        return http.createServer((req, res) => {
-            // CORS headers
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-            if (req.method === 'OPTIONS') {
-                res.writeHead(204);
-                res.end();
-                return;
-            }
-
-            if (req.method === 'POST' && req.url === '/upload') {
-                this.handleFileUpload(req, res);
-            } else {
-                this.sendResponse(res, 404, 'Not Found');
-            }
-        });
+    // Ensure it's a POST request
+    if (event.httpMethod !== 'POST') {
+        return {
+            statusCode: 405,
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify({ message: 'Method Not Allowed' })
+        };
     }
 
-    handleFileUpload(req, res) {
-        const chunks = [];
-        let fileMetadata = {};
+    try {
+        // Parse multipart form data
+        const { file, subdirectory, customFilename } = parseMultipartData(event.body);
 
-        req.on('data', (chunk) => {
-            chunks.push(chunk);
-        });
-
-        req.on('end', () => {
-            try {
-                const boundary = req.headers['content-type'].split('; ')[1].replace('boundary=', '');
-                const fullBody = Buffer.concat(chunks).toString('utf-8');
-                
-                // Parse multipart form data manually
-                const parts = fullBody.split(`--${boundary}`);
-                
-                parts.forEach(part => {
-                    if (part.includes('Content-Disposition: form-data;')) {
-                        const fileDetails = this.parseFormData(part);
-                        if (fileDetails) {
-                            fileMetadata = fileDetails;
-                        }
-                    }
-                });
-
-                if (!fileMetadata.filename || !fileMetadata.content) {
-                    return this.sendResponse(res, 400, 'Invalid file upload');
-                }
-
-                // Determine upload path
-                const uploadPath = this.determineUploadPath(fileMetadata.subdir);
-                const uniqueFilename = this.generateUniqueFilename(fileMetadata.filename);
-                const fullPath = path.join(uploadPath, uniqueFilename);
-
-                // Write file
-                fs.writeFileSync(fullPath, fileMetadata.content);
-
-                this.sendResponse(res, 200, JSON.stringify({
-                    message: 'File uploaded successfully',
-                    filename: uniqueFilename,
-                    path: path.relative(__dirname, fullPath)
-                }));
-
-            } catch (error) {
-                console.error('Upload error:', error);
-                this.sendResponse(res, 500, 'Upload failed');
-            }
-        });
-    }
-
-    parseFormData(part) {
-        const contentDispositionMatch = part.match(/name="(\w+)"; filename="(.+)"/);
-        const fileContentMatch = part.match(/Content-Type: (.+)\r\n\r\n([\s\S]*)/);
-
-        if (contentDispositionMatch && fileContentMatch) {
-            const [, fieldName, filename] = contentDispositionMatch;
-            const [, contentType, content] = fileContentMatch;
-            
-            // Extract optional subdirectory from field name
-            const subdir = fieldName.startsWith('file_') 
-                ? fieldName.replace('file_', '') 
-                : null;
-
-            return {
-                filename, 
-                content: Buffer.from(content.trim(), 'utf-8'),
-                contentType,
-                subdir
-            };
-        }
-        return null;
-    }
-
-    determineUploadPath(subdir) {
-        let uploadDir = this.BASE_UPLOAD_DIR;
-
-        // If subdirectory is specified, create it
-        if (subdir) {
-            uploadDir = path.join(this.BASE_UPLOAD_DIR, subdir);
-            
-            // Ensure subdirectory exists
-            if (!fs.existsSync(uploadDir)) {
-                fs.mkdirSync(uploadDir, { recursive: true });
-            }
-        }
-
-        return uploadDir;
-    }
-
-    generateUniqueFilename(originalFilename) {
+        // Generate unique filename
+        const originalExtension = path.extname(file.filename);
         const timestamp = Date.now();
-        const ext = path.extname(originalFilename);
-        const baseName = path.basename(originalFilename, ext);
-        
-        return `${baseName}_${timestamp}${ext}`;
-    }
+        const uniqueFilename = customFilename 
+            ? `${customFilename}_${timestamp}${originalExtension}`
+            : `${path.basename(file.filename, originalExtension)}_${timestamp}${originalExtension}`;
 
-    sendResponse(res, statusCode, message) {
-        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-        res.end(message);
-    }
+        // Construct full path
+        const fullPath = subdirectory 
+            ? `${subdirectory}/${uniqueFilename}` 
+            : uniqueFilename;
 
-    start(port = 3000) {
-        const server = this.createServer();
-        server.listen(port, () => {
-            console.log(`Server running on http://localhost:${port}`);
+        // Upload to Google Cloud Storage
+        const fileBuffer = Buffer.from(file.content, 'base64');
+        const storageFile = bucket.file(fullPath);
+        await storageFile.save(fileBuffer, {
+            metadata: {
+                contentType: file.contentType || 'application/octet-stream'
+            }
         });
+
+        // Make the file publicly accessible (optional)
+        await storageFile.makePublic();
+
+        return {
+            statusCode: 200,
+            headers: { 
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: 'File uploaded successfully',
+                filename: uniqueFilename,
+                path: fullPath,
+                publicUrl: storageFile.publicUrl()
+            })
+        };
+    } catch (error) {
+        console.error('Upload error:', error);
+        return {
+            statusCode: 500,
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify({
+                message: 'Upload failed',
+                error: error.message
+            })
+        };
+    }
+};
+
+// Helper function to parse multipart form data
+function parseMultipartData(body) {
+    try {
+        const parsedBody = JSON.parse(body);
+        const base64File = parsedBody.file;
+        const subdirectory = parsedBody.subdirectory;
+        const customFilename = parsedBody.customFilename;
+
+        // Extract filename from base64 data
+        const filenameMatch = base64File.match(/filename="([^"]+)"/);
+        const filename = filenameMatch ? filenameMatch[1] : 'uploaded_file';
+
+        // Extract base64 content
+        const base64Content = base64File.split(',')[1];
+
+        return {
+            file: {
+                filename,
+                content: base64Content,
+                contentType: base64File.split(':')[1].split(';')[0]
+            },
+            subdirectory,
+            customFilename
+        };
+    } catch (error) {
+        throw new Error('Invalid file upload data');
     }
 }
-
-// Instantiate and start the server
-const uploader = new FileUploader();
-uploader.start();
