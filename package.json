@@ -1,6 +1,5 @@
 {
   "dependencies": {
     "nodemailer": "^6.9.16"
-    "formidable": "^2.0.1"
   }
 }
