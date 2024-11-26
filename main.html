@@ -6,7 +6,7 @@
   <title>File Upload</title>
 </head>
 <body>
-  <h1>Upload and Store File</h1>
+  <h1>Upload and Rename File</h1>
   <form id="uploadForm" action="/.netlify/functions/upload" method="POST" enctype="multipart/form-data">
     <label for="file">Choose a file:</label>
     <input type="file" id="file" name="file" required>
@@ -14,14 +14,7 @@
     <label for="newName">New file name:</label>
     <input type="text" id="newName" name="newName" placeholder="Enter new file name" required>
     <br><br>
-    <label for="directory">Select a directory:</label>
-    <select id="directory" name="directory" required>
-      <option value="image/ic">image/ic</option>
-      <option value="image/c">image/c</option>
-      <option value="pdf/c">pdf/c</option>
-    </select>
-    <br><br>
-    <button type="submit">Upload and Save</button>
+    <button type="submit">Upload and Rename</button>
   </form>
 </body>
 </html>
