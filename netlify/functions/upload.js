@@ -1,55 +1,66 @@
 const path = require("path");
 const fs = require("fs");
-const { createWriteStream } = require("fs");
 const { tmpdir } = require("os");
-const Busboy = require("busboy");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  return new Promise((resolve) => {
-    const busboy = new Busboy({ headers: event.headers });
-    const uploads = [];
-    let newFileName = "";
+  const contentType = event.headers["content-type"] || event.headers["Content-Type"];
+  if (!contentType || !contentType.startsWith("multipart/form-data")) {
+    return { statusCode: 400, body: "Invalid content type" };
+  }
 
-    busboy.on("file", (fieldname, file, filename) => {
-      const extension = path.extname(filename);
-      const uploadPath = path.join(tmpdir(), filename);
+  // Extract the boundary from the Content-Type header
+  const boundary = contentType.split("boundary=")[1];
+  if (!boundary) {
+    return { statusCode: 400, body: "No boundary in multipart/form-data" };
+  }
 
-      // Save the uploaded file
-      const stream = createWriteStream(uploadPath);
-      file.pipe(stream);
-      uploads.push({ path: uploadPath, extension });
-    });
+  const body = Buffer.from(event.body, "base64");
+  const parts = body.toString("binary").split(`--${boundary}`);
 
-    busboy.on("field", (fieldname, value) => {
-      if (fieldname === "newName") {
-        newFileName = value.trim();
-      }
-    });
+  let filePath = null;
+  let newFileName = null;
 
-    busboy.on("finish", () => {
-      if (uploads.length === 0 || !newFileName) {
-        resolve({ statusCode: 400, body: "File and new name are required" });
-        return;
-      }
+  for (const part of parts) {
+    if (part.includes("Content-Disposition")) {
+      const disposition = part.split("\r\n")[0];
+      const content = part.split("\r\n\r\n")[1];
+      if (disposition.includes("filename")) {
+        // Extract the original filename
+        const filenameMatch = disposition.match(/filename="([^"]+)"/);
+        if (filenameMatch) {
+          const originalFilename = filenameMatch[1];
+          const fileExtension = path.extname(originalFilename);
 
-      // Rename the file
-      const uploadedFile = uploads[0];
-      const newFilePath = path.join(tmpdir(), `${newFileName}${uploadedFile.extension}`);
-      fs.rename(uploadedFile.path, newFilePath, (err) => {
-        if (err) {
-          console.error("Error renaming file:", err);
-          resolve({ statusCode: 500, body: "Error renaming file" });
-          return;
+          // Save the file to a temporary directory
+          filePath = path.join(tmpdir(), originalFilename);
+          fs.writeFileSync(filePath, content, "binary");
+
+          console.log("Uploaded file saved at:", filePath);
         }
+      } else if (disposition.includes("name=\"newName\"")) {
+        // Extract the new file name
+        newFileName = content.trim();
+      }
+    }
+  }
 
-        resolve({ statusCode: 200, body: `File renamed to: ${newFileName}${uploadedFile.extension}` });
-      });
-    });
+  if (!filePath || !newFileName) {
+    return { statusCode: 400, body: "File and new name are required" };
+  }
 
-    busboy.end(Buffer.from(event.body, "base64"));
-  });
+  // Rename the file
+  const fileExtension = path.extname(filePath);
+  const newFilePath = path.join(tmpdir(), `${newFileName}${fileExtension}`);
+
+  try {
+    fs.renameSync(filePath, newFilePath);
+    return { statusCode: 200, body: `File renamed to: ${newFileName}${fileExtension}` };
+  } catch (err) {
+    console.error("Error renaming file:", err);
+    return { statusCode: 500, body: "Error renaming file" };
+  }
 };
