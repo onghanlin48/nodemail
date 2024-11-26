@@ -1,20 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>File Upload</title>
+    <meta charset="UTF-8">
+    <title>File Uploader</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
+        input, select { margin: 10px 0; width: 100%; padding: 5px; }
+        button { padding: 10px; background-color: #4CAF50; color: white; border: none; }
+        #result { margin-top: 20px; }
+    </style>
 </head>
 <body>
-  <h1>Upload and Rename File</h1>
-  <form id="uploadForm" action="/.netlify/functions/upload" method="POST" enctype="multipart/form-data">
-    <label for="file">Choose a file:</label>
-    <input type="file" id="file" name="file" required>
-    <br><br>
-    <label for="newName">New file name:</label>
-    <input type="text" id="newName" name="newName" placeholder="Enter new file name" required>
-    <br><br>
-    <button type="submit">Upload and Rename</button>
-  </form>
+    <h2>File Upload</h2>
+    <form id="uploadForm">
+        <select name="uploadDir" id="uploadDir">
+            <option value="">Choose Upload Directory</option>
+            <option value="image/profile">Profile Images</option>
+            <option value="image/background">Background Images</option>
+            <option value="documents">Documents</option>
+            <option value="misc">Miscellaneous</option>
+        </select>
+        <input type="file" name="file" id="fileInput" required>
+        <input type="text" name="filename" id="filenameInput" placeholder="Optional: Custom Filename">
+        <button type="submit">Upload File</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const resultDiv = document.getElementById('result');
+            const fileInput = document.getElementById('fileInput');
+            const uploadDir = document.getElementById('uploadDir').value;
+            const customFilename = document.getElementById('filenameInput').value;
+
+            if (!fileInput.files.length) {
+                resultDiv.textContent = 'Please select a file';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            
+            // Determine field name based on upload directory
+            const fieldName = uploadDir 
+                ? `file_${uploadDir}` 
+                : 'file';
+
+            // Set filename (use custom or original)
+            const filename = customFilename 
+                ? `${customFilename}${file.name.substring(file.name.lastIndexOf('.'))}` 
+                : file.name;
+
+            formData.append(fieldName, file, filename);
+
+            try {
+                const response = await fetch('/.netlify/functions/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                resultDiv.innerHTML = `
+                    <strong>Upload Successful!</strong><br>
+                    Filename: ${result.filename}<br>
+                    Path: ${result.path}
+                `;
+            } catch (error) {
+                resultDiv.textContent = `Upload failed: ${error.message}`;
+            }
+        });
+    </script>
 </body>
 </html>
