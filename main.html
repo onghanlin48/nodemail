@@ -2,73 +2,175 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>File Uploader</title>
+    <title>Netlify File Uploader</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
-        input, select { margin: 10px 0; width: 100%; padding: 5px; }
-        button { padding: 10px; background-color: #4CAF50; color: white; border: none; }
-        #result { margin-top: 20px; }
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 20px auto; 
+            padding: 0 15px;
+        }
+        .upload-container {
+            background-color: #f4f4f4;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        input, select { 
+            margin: 10px 0; 
+            width: 100%; 
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        button { 
+            width: 100%;
+            padding: 10px; 
+            background-color: #4CAF50; 
+            color: white; 
+            border: none; 
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .error { 
+            color: #d8000c; 
+            background-color: #ffbaba; 
+        }
+        .success { 
+            color: #4F8A10; 
+            background-color: #DFF2BF; 
+        }
+        #progressContainer {
+            width: 100%;
+            background-color: #e0e0e0;
+            padding: 3px;
+            border-radius: 3px;
+            display: none;
+        }
+        #progressBar {
+            width: 0%;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 3px;
+            transition: width 0.5s;
+        }
     </style>
 </head>
 <body>
-    <h2>File Upload</h2>
-    <form id="uploadForm">
-        <select name="uploadDir" id="uploadDir">
-            <option value="">Choose Upload Directory</option>
-            <option value="image/profile">Profile Images</option>
-            <option value="image/background">Background Images</option>
-            <option value="documents">Documents</option>
-            <option value="misc">Miscellaneous</option>
-        </select>
-        <input type="file" name="file" id="fileInput" required>
-        <input type="text" name="filename" id="filenameInput" placeholder="Optional: Custom Filename">
-        <button type="submit">Upload File</button>
-    </form>
-    <div id="result"></div>
+    <div class="upload-container">
+        <h2>File Uploader</h2>
+        <form id="uploadForm">
+            <select name="subdirectory" id="subdirectory">
+                <option value="">Choose Upload Directory</option>
+                <option value="image/profile">Profile Images</option>
+                <option value="image/background">Background Images</option>
+                <option value="documents">Documents</option>
+                <option value="misc">Miscellaneous</option>
+            </select>
+            
+            <input 
+                type="file" 
+                name="file" 
+                id="fileInput" 
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                required
+            >
+            
+            <input 
+                type="text" 
+                name="customFilename" 
+                id="customFilename" 
+                placeholder="Optional: Custom Filename"
+            >
+            
+            <button type="submit">Upload File</button>
+        </form>
+
+        <div id="progressContainer">
+            <div id="progressBar"></div>
+        </div>
+        
+        <div id="result"></div>
+    </div>
 
     <script>
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const resultDiv = document.getElementById('result');
+            
             const fileInput = document.getElementById('fileInput');
-            const uploadDir = document.getElementById('uploadDir').value;
-            const customFilename = document.getElementById('filenameInput').value;
+            const subdirectory = document.getElementById('subdirectory').value;
+            const customFilename = document.getElementById('customFilename').value;
+            const resultDiv = document.getElementById('result');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+
+            // Reset UI
+            resultDiv.textContent = '';
+            resultDiv.className = '';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
 
             if (!fileInput.files.length) {
                 resultDiv.textContent = 'Please select a file';
+                resultDiv.className = 'error';
+                progressContainer.style.display = 'none';
                 return;
             }
 
             const file = fileInput.files[0];
-            const formData = new FormData();
-            
-            // Determine field name based on upload directory
-            const fieldName = uploadDir 
-                ? `file_${uploadDir}` 
-                : 'file';
 
-            // Set filename (use custom or original)
-            const filename = customFilename 
-                ? `${customFilename}${file.name.substring(file.name.lastIndexOf('.'))}` 
-                : file.name;
+            // Create FileReader to convert file to base64
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const response = await fetch('/.netlify/functions/upload', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            file: event.target.result,
+                            subdirectory,
+                            customFilename
+                        })
+                    });
 
-            formData.append(fieldName, file, filename);
+                    const result = await response.json();
 
-            try {
-                const response = await fetch('/.netlify/functions/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+                    if (response.ok) {
+                        // Success
+                        progressBar.style.width = '100%';
+                        resultDiv.innerHTML = `
+                            <strong>Upload Successful!</strong><br>
+                            Filename: ${result.filename}<br>
+                            Path: ${result.path}<br>
+                            <a href="${result.publicUrl}" target="_blank">View File</a>
+                        `;
+                        resultDiv.className = 'success';
+                    } else {
+                        // Error
+                        resultDiv.textContent = `Upload failed: ${result.message || 'Unknown error'}`;
+                        resultDiv.className = 'error';
+                    }
+                } catch (error) {
+                    resultDiv.textContent = `Upload failed: ${error.message}`;
+                    resultDiv.className = 'error';
+                } finally {
+                    // Hide progress after a short delay
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                    }, 2000);
+                }
+            };
 
-                const result = await response.json();
-                resultDiv.innerHTML = `
-                    <strong>Upload Successful!</strong><br>
-                    Filename: ${result.filename}<br>
-                    Path: ${result.path}
-                `;
-            } catch (error) {
-                resultDiv.textContent = `Upload failed: ${error.message}`;
-            }
+            // Read file as base64
+            reader.readAsDataURL(file);
         });
     </script>
 </body>
