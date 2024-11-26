@@ -1,102 +1,150 @@
-const path = require("path");
-const fs = require("fs");
-const { tmpdir } = require("os");
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const url = require('url');
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  const contentType = event.headers["content-type"] || event.headers["Content-Type"];
-  if (!contentType || !contentType.startsWith("multipart/form-data")) {
-    return { statusCode: 400, body: "Invalid content type" };
-  }
-
-  // Extract the boundary from the Content-Type header
-  const boundary = contentType.split("boundary=")[1];
-  if (!boundary) {
-    return { statusCode: 400, body: "No boundary in multipart/form-data" };
-  }
-
-  const body = Buffer.from(event.body, "base64");
-  const parts = body.toString("binary").split(`--${boundary}`);
-
-  let filePath = null;
-  let newFileName = null;
-  let fileType = null;
-
-  for (const part of parts) {
-    if (part.includes("Content-Disposition")) {
-      const disposition = part.split("\r\n")[0];
-      const content = part.split("\r\n\r\n")[1];
-      if (disposition.includes("filename")) {
-        // Extract the original filename
-        const filenameMatch = disposition.match(/filename="([^"]+)"/);
-        if (filenameMatch) {
-          const originalFilename = filenameMatch[1];
-          const fileExtension = path.extname(originalFilename);
-
-          // Determine the file type based on extension
-          if ([".jpg", ".jpeg", ".png", ".gif"].includes(fileExtension.toLowerCase())) {
-            fileType = "image";
-          } else if ([".pdf"].includes(fileExtension.toLowerCase())) {
-            fileType = "pdf";
-          }
-
-          // Create the directory for the file if it doesn't exist
-          if (fileType === "image") {
-            const imageDir = path.join(tmpdir(), "image");
-            if (!fs.existsSync(imageDir)) {
-              fs.mkdirSync(imageDir);
-            }
-
-            // Subdirectories based on your requirement (ic or c)
-            const subDir = "ic"; // Modify this dynamically based on your logic
-            const dirPath = path.join(imageDir, subDir);
-            if (!fs.existsSync(dirPath)) {
-              fs.mkdirSync(dirPath);
-            }
-
-            filePath = path.join(dirPath, originalFilename);
-          } else if (fileType === "pdf") {
-            const pdfDir = path.join(tmpdir(), "pdf");
-            if (!fs.existsSync(pdfDir)) {
-              fs.mkdirSync(pdfDir);
-            }
-
-            const pdfSubDir = "c"; // Modify this dynamically based on your logic
-            const pdfDirPath = path.join(pdfDir, pdfSubDir);
-            if (!fs.existsSync(pdfDirPath)) {
-              fs.mkdirSync(pdfDirPath);
-            }
-
-            filePath = path.join(pdfDirPath, originalFilename);
-          }
-
-          // Save the file
-          fs.writeFileSync(filePath, content, "binary");
-          console.log("Uploaded file saved at:", filePath);
+class FileUploader {
+    constructor() {
+        // Base upload directory
+        this.BASE_UPLOAD_DIR = path.join(__dirname, 'uploads');
+        
+        // Ensure base upload directory exists
+        if (!fs.existsSync(this.BASE_UPLOAD_DIR)) {
+            fs.mkdirSync(this.BASE_UPLOAD_DIR);
         }
-      } else if (disposition.includes("name=\"newName\"")) {
-        // Extract the new file name
-        newFileName = content.trim();
-      }
     }
-  }
 
-  if (!filePath || !newFileName) {
-    return { statusCode: 400, body: "File and new name are required" };
-  }
+    createServer() {
+        return http.createServer((req, res) => {
+            // CORS headers
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Rename the file if it exists
-  const fileExtension = path.extname(filePath);
-  const newFilePath = path.join(path.dirname(filePath), `${newFileName}${fileExtension}`);
+            if (req.method === 'OPTIONS') {
+                res.writeHead(204);
+                res.end();
+                return;
+            }
 
-  try {
-    fs.renameSync(filePath, newFilePath);
-    return { statusCode: 200, body: `File renamed to: ${newFileName}${fileExtension}` };
-  } catch (err) {
-    console.error("Error renaming file:", err);
-    return { statusCode: 500, body: "Error renaming file" };
-  }
-};
+            if (req.method === 'POST' && req.url === '/upload') {
+                this.handleFileUpload(req, res);
+            } else {
+                this.sendResponse(res, 404, 'Not Found');
+            }
+        });
+    }
+
+    handleFileUpload(req, res) {
+        const chunks = [];
+        let fileMetadata = {};
+
+        req.on('data', (chunk) => {
+            chunks.push(chunk);
+        });
+
+        req.on('end', () => {
+            try {
+                const boundary = req.headers['content-type'].split('; ')[1].replace('boundary=', '');
+                const fullBody = Buffer.concat(chunks).toString('utf-8');
+                
+                // Parse multipart form data manually
+                const parts = fullBody.split(`--${boundary}`);
+                
+                parts.forEach(part => {
+                    if (part.includes('Content-Disposition: form-data;')) {
+                        const fileDetails = this.parseFormData(part);
+                        if (fileDetails) {
+                            fileMetadata = fileDetails;
+                        }
+                    }
+                });
+
+                if (!fileMetadata.filename || !fileMetadata.content) {
+                    return this.sendResponse(res, 400, 'Invalid file upload');
+                }
+
+                // Determine upload path
+                const uploadPath = this.determineUploadPath(fileMetadata.subdir);
+                const uniqueFilename = this.generateUniqueFilename(fileMetadata.filename);
+                const fullPath = path.join(uploadPath, uniqueFilename);
+
+                // Write file
+                fs.writeFileSync(fullPath, fileMetadata.content);
+
+                this.sendResponse(res, 200, JSON.stringify({
+                    message: 'File uploaded successfully',
+                    filename: uniqueFilename,
+                    path: path.relative(__dirname, fullPath)
+                }));
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                this.sendResponse(res, 500, 'Upload failed');
+            }
+        });
+    }
+
+    parseFormData(part) {
+        const contentDispositionMatch = part.match(/name="(\w+)"; filename="(.+)"/);
+        const fileContentMatch = part.match(/Content-Type: (.+)\r\n\r\n([\s\S]*)/);
+
+        if (contentDispositionMatch && fileContentMatch) {
+            const [, fieldName, filename] = contentDispositionMatch;
+            const [, contentType, content] = fileContentMatch;
+            
+            // Extract optional subdirectory from field name
+            const subdir = fieldName.startsWith('file_') 
+                ? fieldName.replace('file_', '') 
+                : null;
+
+            return {
+                filename, 
+                content: Buffer.from(content.trim(), 'utf-8'),
+                contentType,
+                subdir
+            };
+        }
+        return null;
+    }
+
+    determineUploadPath(subdir) {
+        let uploadDir = this.BASE_UPLOAD_DIR;
+
+        // If subdirectory is specified, create it
+        if (subdir) {
+            uploadDir = path.join(this.BASE_UPLOAD_DIR, subdir);
+            
+            // Ensure subdirectory exists
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+        }
+
+        return uploadDir;
+    }
+
+    generateUniqueFilename(originalFilename) {
+        const timestamp = Date.now();
+        const ext = path.extname(originalFilename);
+        const baseName = path.basename(originalFilename, ext);
+        
+        return `${baseName}_${timestamp}${ext}`;
+    }
+
+    sendResponse(res, statusCode, message) {
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(message);
+    }
+
+    start(port = 3000) {
+        const server = this.createServer();
+        server.listen(port, () => {
+            console.log(`Server running on http://localhost:${port}`);
+        });
+    }
+}
+
+// Instantiate and start the server
+const uploader = new FileUploader();
+uploader.start();
