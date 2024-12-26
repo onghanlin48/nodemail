@@ -2,9 +2,7 @@
   "dependencies": {
     "formidable": "^3.5.2",
     "nodemailer": "^6.9.16",
-    "aws-sdk": "^2.1194.0",  
-    "multiparty": "^4.2.3", 
-    "uuid": "^8.3.2"
+    "busboy": "^1.6.0"
   }
 
 }
