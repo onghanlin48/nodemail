@@ -2,7 +2,7 @@ const busboy = require('busboy');
 const fs = require('fs');
 const path = require('path');
 
-exports.handler = async function(event) {
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -12,30 +12,34 @@ exports.handler = async function(event) {
 
   return new Promise((resolve, reject) => {
     const bb = busboy({ headers: { 'content-type': event.headers['content-type'] } });
-    const uploads = [];
     const tmpDir = '/tmp';
+    const uploads = [];
 
     bb.on('file', (fieldname, file, filename) => {
-      const savePath = path.join(tmpDir, filename);
-      const writeStream = fs.createWriteStream(savePath);
+      const filePath = path.join(tmpDir, filename);
+      const writeStream = fs.createWriteStream(filePath);
       file.pipe(writeStream);
-      uploads.push(savePath);
+      uploads.push(filePath);
 
       writeStream.on('close', () => {
-        resolve({
-          statusCode: 200,
-          body: JSON.stringify({
-            message: 'File uploaded successfully',
-            filePath: uploads,
-          }),
-        });
+        console.log(`Uploaded file: ${filePath}`);
       });
     });
 
-    bb.on('error', err => {
+    bb.on('finish', () => {
+      resolve({
+        statusCode: 200,
+        body: JSON.stringify({
+          message: 'File uploaded successfully',
+          files: uploads,
+        }),
+      });
+    });
+
+    bb.on('error', (err) => {
       reject({
         statusCode: 500,
-        body: JSON.stringify({ message: 'Error uploading file', error: err.message }),
+        body: JSON.stringify({ message: 'Upload error', error: err.message }),
       });
     });
 
