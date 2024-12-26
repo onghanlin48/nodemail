@@ -1,49 +1,63 @@
-const fs = require('fs');
+// Import required modules
+const express = require('express');
+const multer = require('multer');
 const path = require('path');
-const formidable = require('formidable'); // We can use `formidable` for parsing form data (included in Netlify Lambda by default)
-const { parse } = require('querystring');
+const fs = require('fs');
 
-exports.handler = async (event, context) => {
-  return new Promise((resolve, reject) => {
-    // Initialize the formidable form
-    const form = new formidable.IncomingForm();
-    
-    // Define the directory where the file will be saved
-    form.uploadDir = path.join(__dirname, '../uploads');
-    form.keepExtensions = true; // Keep file extensions
+const app = express();
+const port = 3000;
 
-    // Ensure the directory exists
-    const targetDir = path.join(__dirname, '../uploads');
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir);
+// Set up upload directory
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Configure Multer for file uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = `${Date.now()}_${file.originalname}`;
+        cb(null, uniqueName);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        const fileType = path.extname(file.originalname).toLowerCase();
+        if (fileType !== '.pdf') {
+            return cb(new Error('Only PDF files are allowed'), false);
+        }
+        cb(null, true);
+    }
+});
+
+// Route to handle file uploads
+app.post('/upload', upload.single('pdf_file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({
+            success: false,
+            message: 'No file received',
+        });
     }
 
-    // Parse the incoming request
-    form.parse(event.body, async (err, fields, files) => {
-      if (err) {
-        reject({
-          statusCode: 400,
-          body: JSON.stringify({ message: 'Error parsing form data', error: err }),
-        });
-        return;
-      }
+    // Generate URL for the uploaded file
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
 
-      const file = files.file[0];
-      const filename = fields.filename || file.originalFilename;
-
-      // Define the file path and save it
-      const filePath = path.join(form.uploadDir, filename);
-
-      fs.renameSync(file.filepath, filePath);
-
-      resolve({
-        statusCode: 200,
-        body: JSON.stringify({
-          message: 'File uploaded successfully',
-          filename: filename,
-          filePath: filePath,
-        }),
-      });
+    res.json({
+        success: true,
+        message: 'File uploaded successfully',
+        file_url: fileUrl,
     });
-  });
-};
+});
+
+// Serve uploaded files
+app.use('/uploads', express.static(uploadDir));
+
+// Start the server
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+});
