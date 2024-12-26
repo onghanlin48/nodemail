@@ -1,62 +1,19 @@
-const AWS = require("aws-sdk");
-const multiparty = require("multiparty");
-const { v4: uuidv4 } = require("uuid");
+const formidable = require('formidable');
+const fs = require('fs');
+const path = require('path');
 
-// Configure AWS S3 for the Singapore region
-const S3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: "ap-southeast-1", // Singapore region
-});
+exports.handler = async function(event, context) {
+  const form = new formidable.IncomingForm();
+  form.parse(event, (err, fields, files) => {
+    if (err) {
+      return { statusCode: 500, body: JSON.stringify({ message: 'Error parsing form' }) };
+    }
+    const uploadedFile = files.pdf[0]; // Access the uploaded PDF file
+    const filePath = path.join(__dirname, 'uploads', uploadedFile.originalFilename);
+    
+    // Save file to server directory
+    fs.renameSync(uploadedFile.filepath, filePath);
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Method Not Allowed" }),
-    };
-  }
-
-  try {
-    const form = new multiparty.Form();
-    const data = await new Promise((resolve, reject) => {
-      form.parse(event, (err, fields, files) => {
-        if (err) reject(err);
-        resolve({ fields, files });
-      });
-    });
-
-    const file = files.file[0]; // Get the uploaded file
-    console.log("File received:", file);  // Log file info
-
-    const fileContent = require("fs").readFileSync(file.path);
-
-    // Create a unique name for the file
-    const fileName = `${uuidv4()}.pdf`;
-
-    // Upload the file to S3
-    const params = {
-      Bucket: process.env.S3_BUCKET_NAME, // Your bucket name
-      Key: fileName,
-      Body: fileContent,
-      ContentType: "application/pdf",
-    };
-
-    const uploadResult = await S3.upload(params).promise();
-    console.log("File uploaded successfully:", uploadResult);  // Log successful upload
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        message: "File uploaded successfully",
-        url: uploadResult.Location, // S3 URL
-      }),
-    };
-  } catch (error) {
-    console.error("Error during upload:", error);  // Log any errors
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
-  }
+    return { statusCode: 200, body: JSON.stringify({ message: 'File uploaded', filePath }) };
+  });
 };
