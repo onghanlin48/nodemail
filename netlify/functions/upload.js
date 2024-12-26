@@ -2,11 +2,11 @@ const AWS = require("aws-sdk");
 const multiparty = require("multiparty");
 const { v4: uuidv4 } = require("uuid");
 
-// Configure AWS S3 (you can use other storage services if needed)
+// Configure AWS S3 for the Singapore region
 const S3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: "us-east-1", // Change to your S3 bucket region
+  region: "ap-southeast-1", // Singapore region
 });
 
 exports.handler = async (event) => {
