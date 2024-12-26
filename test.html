@@ -7,11 +7,15 @@
 </head>
 <body>
     <h1>File Upload Example</h1>
-    <form action="https://nodemaillin.netlify.app/.netlify/functions/upload" method="POST" enctype="multipart/form-data">
-        <label for="pdf">Select PDF file to upload:</label>
-        <input type="file" id="pdf" name="pdf" accept="application/pdf" required>
-        <br><br>
-        <button type="submit">Upload PDF</button>
-    </form>
+<form
+  action="/.netlify/functions/upload"
+  method="POST"
+  enctype="multipart/form-data">
+  <label for="pdf">Select PDF file to upload:</label>
+  <input type="file" id="pdf" name="pdf" accept="application/pdf" required>
+  <br><br>
+  <button type="submit">Upload PDF</button>
+</form>
+
 </body>
 </html>
