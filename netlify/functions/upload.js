@@ -27,6 +27,8 @@ exports.handler = async (event) => {
     });
 
     const file = files.file[0]; // Get the uploaded file
+    console.log("File received:", file);  // Log file info
+
     const fileContent = require("fs").readFileSync(file.path);
 
     // Create a unique name for the file
@@ -41,6 +43,7 @@ exports.handler = async (event) => {
     };
 
     const uploadResult = await S3.upload(params).promise();
+    console.log("File uploaded successfully:", uploadResult);  // Log successful upload
 
     return {
       statusCode: 200,
@@ -50,6 +53,7 @@ exports.handler = async (event) => {
       }),
     };
   } catch (error) {
+    console.error("Error during upload:", error);  // Log any errors
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message }),
